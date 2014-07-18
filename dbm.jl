@@ -227,7 +227,7 @@ end
 
 function hsmap_from_json(fname::String)
 	df = DBM.from_json(JSON.parsefile(fname))
-	result = hsmap(df, 0.2, 1.0, 400)
+	result = hsmap(df, 0.1, 1.0, 100)
 	return JSON.json(result)
 end
 
