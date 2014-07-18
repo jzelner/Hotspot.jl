@@ -1,34 +1,39 @@
 module DBM
 
 using Distributions
-using DataFrames
+using JSON
 
 export smoothing_window
-
-# random_hotspot <- function(x,y, h2, in_p, out_p) {
-	
-# 	h <- h2/2
-# 	mid_x <- (max(x) + min(x))/2
-# 	mid_y <- (max(y) + min(y))/2
-
-# 	hp_x <- c(mid_x-h, mid_x+h)
-# 	hp_y <- c(mid_y-h, mid_y+h)
-
-# 	in_spot <- (x > hp_x[1] & x < hp_x[2]) & (y > hp_y[1] & y < hp_y[2])
-
-# 	z <- rbinom(length(x), 1, out_p)
-# 	z[in_spot] <- rbinom(sum(in_spot), 1, in_p)
-
-# 	vals <- list(z = z, coord = c(hp_x, hp_y) )
-# 	return(vals)
-
-# }
+export hsmap
 
 type Dataset 
 	x::Array{Float64}
 	y::Array{Float64}
 	z::Array{Int}
 end
+
+function json(ds::Dataset) 
+	return json(["x" => ds.x, "y" => ds.y, "z" => ds.z])
+end
+
+function from_json(ds::Dict{String, Any}) 
+	x = convert(Array{Float64}, ds["x"])
+	y = convert(Array{Float64}, ds["y"])
+	z = convert(Array{Int}, ds["z"])
+
+	return Dataset(x,y,z)
+end
+
+function from_json(ds::String) 
+	d = JSON.parse(ds)
+
+	x = convert(Array{Float64}, d["x"])
+	y = convert(Array{Float64}, d["y"])
+	z = convert(Array{Int}, d["z"])
+
+	return Dataset(x,y,z)
+end
+
 
 function random_hotspot(x::Array{Float64}, y::Array{Float64}, width::Float64, in_p::Float64, out_p::Float64)
 	
@@ -69,7 +74,7 @@ function circle_points(x::Array{Float64}, y::Array{Float64}, r::Float64)
 
 	for i=offsets
 		push!(vals["x"], mid_x + r*sin(i)) 
-		push!(vals["y"], mid_x + r*cos(i))
+		push!(vals["y"], mid_y + r*cos(i))
 	end
 
 	return vals
@@ -153,11 +158,6 @@ function smoothing_window{T<:Number}(ed::Array{T,1}, sd::Array{T,1}, p::Float64)
 			ub = length(ed)
 		end
 
-		# num_ed = length(ed)
-		# min_d = minimum(ed)
-		# max_d = maximum(ed)
-		# print("length = $num_ed, $min_d, $max_d, $stride_length, d = $d, i = $i, LB = $lb, UB = $ub\n")
-
 		push!(vals["lb"], ed[lb])
 		push!(vals["ub"], ed[ub])
 		push!(vals["density"], (ub-lb)/length(ed))
@@ -215,12 +215,22 @@ function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Fl
 
 				high_index = searchsortedlast(ddi, ubv)
 				rd[j] = rd[j] + ((high_index - low_index) / n_dp) - density[j,i]
+			else 
+				rd[j] = rd[j] - density[j,i]
 			end
+
 		end
 	end
 
 	return rd
 end
+
+function hsmap_from_json(fname::String)
+	df = DBM.from_json(JSON.parsefile(fname))
+	result = hsmap(df, 0.2, 1.0, 400)
+	return JSON.json(result)
+end
+
 
 
 function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
@@ -267,15 +277,13 @@ function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
 		end
 		
 		h = risk_difference(case_distances, sw["lb"], sw["ub"], sw["density"])
+
 		push!(min_scores,minimum(h))
 		push!(max_scores,maximum(h))
 		
 	end
 
-	print(min_scores)
-
-	return DataFrame(x = rg_x, y = rg_y, score = rd), min_scores, max_scores
-
+	return ["x" => rg_x, "y" => rg_y, "score" => rd, "min" => min_scores, "max" => max_scores]
 
 end
 
