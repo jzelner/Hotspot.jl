@@ -2,21 +2,34 @@ module DBM
 
 using Distributions
 using JSON
+using ProgressMeter
 
 export smoothing_window
 export hsmap
 
-type Dataset 
+type Dataset
 	x::Array{Float64}
 	y::Array{Float64}
 	z::Array{Int}
 end
 
-function json(ds::Dataset) 
+function json(ds::Dataset)
 	return json(["x" => ds.x, "y" => ds.y, "z" => ds.z])
 end
 
-function from_json(ds::Dict{String, Any}) 
+function from_json(dsarr::Array{Any,1})
+	out_arr = Dataset[]
+	for ds=dsarr
+		x = convert(Array{Float64}, ds["x"])
+		y = convert(Array{Float64}, ds["y"])
+		z = convert(Array{Int}, ds["z"])
+		push!(out_arr, Dataset(x,y,z))
+	end
+
+	return(out_arr)
+end
+
+function from_json(ds::Dict{String, Any})
 	x = convert(Array{Float64}, ds["x"])
 	y = convert(Array{Float64}, ds["y"])
 	z = convert(Array{Int}, ds["z"])
@@ -24,7 +37,7 @@ function from_json(ds::Dict{String, Any})
 	return Dataset(x,y,z)
 end
 
-function from_json(ds::String) 
+function from_json(ds::String)
 	d = JSON.parse(ds)
 
 	x = convert(Array{Float64}, d["x"])
@@ -36,7 +49,7 @@ end
 
 
 function random_hotspot(x::Array{Float64}, y::Array{Float64}, width::Float64, in_p::Float64, out_p::Float64)
-	
+
 	h = width/2.0
 	z = Array(Int, length(x))
 	in_rand = Bernoulli(in_p)
@@ -64,23 +77,23 @@ function random_hotspot(x::Array{Float64}, y::Array{Float64}, width::Float64, in
 end
 
 
-function circle_points(x::Array{Float64}, y::Array{Float64}, r::Float64) 
+function circle_points(x::Array{Float64}, y::Array{Float64}, r::Float64)
 
 	mid_x = (maximum(x) + minimum(x)) / 2
 	mid_y = (maximum(y) + minimum(y)) / 2
-	
+
 	offsets = 0:(2*pi/20):(2*pi)-(2*pi/20)
 	vals = ["x" => Float64[], "y" => Float64[]]
 
 	for i=offsets
-		push!(vals["x"], mid_x + r*sin(i)) 
+		push!(vals["x"], mid_x + r*sin(i))
 		push!(vals["y"], mid_y + r*cos(i))
 	end
 
 	return vals
 end
 
-function all_dist(x::Array{Float64},y::Array{Float64}, cx::Float64, cy::Float64) 
+function all_dist(x::Array{Float64},y::Array{Float64}, cx::Float64, cy::Float64)
 	dist = Array(Float64,length(x))
 	for i = 1:length(x)
 		dist[i] = sqrt((x[i]-cx)^2 + (y[i]-cy)^2)
@@ -90,8 +103,8 @@ end
 
 
 
-function risk_grid(minX::Float64, maxX::Float64, minY::Float64, maxY::Float64, dim::Int) 
-	x = minX:((maxX-minX)/(dim-1)):maxX 
+function risk_grid(minX::Float64, maxX::Float64, minY::Float64, maxY::Float64, dim::Int)
+	x = minX:((maxX-minX)/(dim-1)):maxX
 	y = minX:((maxX-minX)/(dim-1)):maxY
 	vals = ["x" => Float64[], "y" => Float64[]]
 
@@ -109,18 +122,18 @@ function risk_grid(x::Array{Float64}, y::Array{Float64}, dim::Int)
 	risk_grid(minimum(x), maximum(x), minimum(y), maximum(y), dim)
 end
 
-function risk_grid(ds::Dataset, dim::Int) 
+function risk_grid(ds::Dataset, dim::Int)
 	risk_grid(ds.x, ds.y, dim)
 end
 
-function ecdf(x::Array{Float64}, v::Float64) 
+function ecdf(x::Array{Float64}, v::Float64)
 	if !issorted(x)
 		sort!(x)
 	end
 	return searchsortedlast(x,v) / length(x)
 end
 
-function ecdf(x::Array{Float64}, v::Array{Float64}) 
+function ecdf(x::Array{Float64}, v::Array{Float64})
 	vals = Array(Float64, length(v))
 	if !issorted(x)
 		sort!(x)
@@ -140,7 +153,7 @@ function smoothing_window{T<:Number}(ed::Array{T,1}, sd::Array{T,1}, p::Float64)
 	sort!(ed)
 	vals = ["lb" => Float64[], "ub" => Float64[], "density" => Float64[]]
 
-	#Calculate the number of cases on either side of the selected case we'll use for 
+	#Calculate the number of cases on either side of the selected case we'll use for
 	#calculating indices
 
 	# print(length(ed))
@@ -168,7 +181,7 @@ function smoothing_window{T<:Number}(ed::Array{T,1}, sd::Array{T,1}, p::Float64)
 
 end
 
-function smoothing_window{T<:Number}(ed::Array{T}, sd::Array{T}, p::Float64) 
+function smoothing_window{T<:Number}(ed::Array{T}, sd::Array{T}, p::Float64)
 
 	num_cp = size(ed)[2]
 	num_sd = size(sd)[1]
@@ -178,7 +191,7 @@ function smoothing_window{T<:Number}(ed::Array{T}, sd::Array{T}, p::Float64)
 	lb = Array(Float64, num_sd, num_cp)
 	ub = Array(Float64, num_sd, num_cp)
 	density = Array(Float64, num_sd, num_cp)
-	
+
 	for i=1:num_cp
 		sw = smoothing_window(ed[:,i], sd[:,i], p)
 		lb[:,i] = sw["lb"]
@@ -189,9 +202,9 @@ function smoothing_window{T<:Number}(ed::Array{T}, sd::Array{T}, p::Float64)
 	return ["lb" => lb, "ub" => ub, "density" => density]
 end
 
-# function point_score(sw::Dict{ASCIIString, Array{Float64}}, case_ids::Array{Int}) 
+# function point_score(sw::Dict{ASCIIString, Array{Float64}}, case_ids::Array{Int})
 
-# end 
+# end
 
 function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Float64}, density::Array{Float64})
 
@@ -215,7 +228,7 @@ function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Fl
 
 				high_index = searchsortedlast(ddi, ubv)
 				rd[j] = rd[j] + ((high_index - low_index) / n_dp) - density[j,i]
-			else 
+			else
 				rd[j] = rd[j] - density[j,i]
 			end
 
@@ -226,11 +239,21 @@ function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Fl
 end
 
 function hsmap_from_json(fname::String)
+
 	df = DBM.from_json(JSON.parsefile(fname))
-	result = hsmap(df, 0.1, 1.0, 100)
+	result = hsmap(df, 0.2, 2.0, 100)
 	return JSON.json(result)
 end
 
+
+function hsmap(dslist::Array{Dataset}, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
+	returnmaps = Dict{ASCIIString,Array{Float64}}[]
+	for ds=1:length(dslist)
+		push!(returnmaps, hsmap(dslist[ds], p, r, dim))
+	end
+
+	return returnmaps
+end
 
 
 function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
@@ -246,7 +269,7 @@ function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
 	rg_y = rg["y"]
 
 	case_x = ds.x[ds.z .== 1]
-	case_y = ds.y[ds.z .== 1] 
+	case_y = ds.y[ds.z .== 1]
 
 	#Calculate the distance of each point on the smoothing grid
 	#from each external point
@@ -267,20 +290,23 @@ function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
 
 	min_scores = Float64[]
 	max_scores = Float64[]
-	for i = 1:100
+	nsamp = 100
+	p = Progress(nsamp, 1, "Taking $nsamp color samples...",convert(Int,ceil(nsamp/10)))
+	for i = 1:nsamp
 		#randomize case designations
 		case_designations = shuffle(ds.z)
 		case_x = ds.x[case_designations .== 1]
-		case_y = ds.y[case_designations .== 1] 
+		case_y = ds.y[case_designations .== 1]
 		for i=1:num_cp
 			case_distances[:,i] = sort(all_dist(case_x, case_y, cp["x"][i], cp["y"][i]))
 		end
-		
+
 		h = risk_difference(case_distances, sw["lb"], sw["ub"], sw["density"])
 
 		push!(min_scores,minimum(h))
 		push!(max_scores,maximum(h))
-		
+		next!(p)
+
 	end
 
 	return ["x" => rg_x, "y" => rg_y, "score" => rd, "min" => min_scores, "max" => max_scores]
