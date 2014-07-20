@@ -240,7 +240,7 @@ end
 
 function hsmap_from_json(fname::String)
 
-	df = DBM.from_json(JSON.parsefile(fname))
+	df = Hotspot.from_json(JSON.parsefile(fname))
 	result = hsmap(df, 0.2, 2.0, 100)
 	return JSON.json(result)
 end
