@@ -13,16 +13,27 @@ type Dataset
 	z::Array{Int}
 end
 
+type MapInput
+	p::Float64
+	r::Float64
+	dim::Int
+	ds::Dataset
+end
+
 function json(ds::Dataset)
 	return json(["x" => ds.x, "y" => ds.y, "z" => ds.z])
 end
 
 function from_json(dsarr::Array{Any,1})
-	out_arr = Dataset[]
+	out_arr = MapInput[]
 	for ds=dsarr
 		x = convert(Array{Float64}, ds["x"])
 		y = convert(Array{Float64}, ds["y"])
 		z = convert(Array{Int}, ds["z"])
+		dim = convert(Int, ds["dim"])
+		p = convert(Float64, ds["p"])
+		r = convert(Float64, ds["r"])
+		mi = MapInput(p,r,dim, Dataset)
 		push!(out_arr, Dataset(x,y,z))
 	end
 
@@ -34,7 +45,11 @@ function from_json(ds::Dict{String, Any})
 	y = convert(Array{Float64}, ds["y"])
 	z = convert(Array{Int}, ds["z"])
 
-	return Dataset(x,y,z)
+	dim = convert(Int, ds["dim"])
+	p = convert(Float64, ds["p"])
+	r = convert(Float64, ds["r"])
+	mi = MapInput(p,r,dim, Dataset(x,y,z))
+	return mi
 end
 
 function from_json(ds::String)
@@ -239,19 +254,21 @@ function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Fl
 end
 
 function hsmap_from_json(fname::String)
-
 	df = Hotspot.from_json(JSON.parsefile(fname))
-	result = hsmap(df, 0.2, 2.0, 100)
+	result = hsmap(df)
 	return JSON.json(result)
 end
 
+function hsmap(mi::MapInput) 
+	print("Making map with p = $(mi.p), r = $(mi.r), dim = $(mi.dim)\n")
+	return hsmap(mi.ds, mi.p, mi.r, mi.dim)
+end
 
-function hsmap(dslist::Array{Dataset}, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
+function hsmap(dslist::Array{MapInput})
 	returnmaps = Dict{ASCIIString,Array{Float64}}[]
-	for ds=1:length(dslist)
-		push!(returnmaps, hsmap(dslist[ds], p, r, dim))
+	for ds=dslist
+		push!(returnmaps, hsmap(ds))
 	end
-
 	return returnmaps
 end
 
@@ -288,23 +305,23 @@ function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
 	sw =  smoothing_window(data_distances, point_distances, p)
 	rd = risk_difference(case_distances, sw["lb"], sw["ub"], sw["density"])
 
-	min_scores = Float64[]
-	max_scores = Float64[]
 	nsamp = 100
+	min_scores = Array(Float64, nsamp)
+	max_scores = Array(Float64, nsamp)
 	p = Progress(nsamp, 1, "Taking $nsamp color samples...",convert(Int,ceil(nsamp/10)))
 	for i = 1:nsamp
 		#randomize case designations
 		case_designations = shuffle(ds.z)
 		case_x = ds.x[case_designations .== 1]
 		case_y = ds.y[case_designations .== 1]
-		for i=1:num_cp
-			case_distances[:,i] = sort(all_dist(case_x, case_y, cp["x"][i], cp["y"][i]))
+		for j=1:num_cp
+			case_distances[:,j] = sort(all_dist(case_x, case_y, cp["x"][j], cp["y"][j]))
 		end
 
 		h = risk_difference(case_distances, sw["lb"], sw["ub"], sw["density"])
 
-		push!(min_scores,minimum(h))
-		push!(max_scores,maximum(h))
+		min_scores[i] = minimum(h)
+		max_scores[i] = maximum(h)
 		next!(p)
 
 	end
