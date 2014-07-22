@@ -34,7 +34,7 @@ function from_json(dsarr::Array{Any,1})
 		p = convert(Float64, ds["p"])
 		r = convert(Float64, ds["r"])
 		mi = MapInput(p,r,dim, Dataset)
-		push!(out_arr, Dataset(x,y,z))
+		push!(out_arr, mi)
 	end
 
 	return(out_arr)
