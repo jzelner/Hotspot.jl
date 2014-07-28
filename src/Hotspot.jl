@@ -18,6 +18,12 @@ type MapInput
 	r::Float64
 	dim::Int
 	ds::Dataset
+	xbounds
+	ybounds
+end
+
+function MapInput(p::Float64, r::Float64, dim::Int, ds::Dataset)
+	return(MapInput(p,r,dim,ds, None, None))
 end
 
 function json(ds::Dataset)
@@ -33,7 +39,15 @@ function from_json(dsarr::Array{Any,1})
 		dim = convert(Int, ds["dim"])
 		p = convert(Float64, ds["p"])
 		r = convert(Float64, ds["r"])
-		mi = MapInput(p,r,dim, Dataset(x,y,z))
+		if (ds["xbounds"] != "None") & (ds["ybounds"] != "None")
+			xbounds = convert(Array{Float64}, ds["xbounds"])
+			ybounds = convert(Array{Float64}, ds["ybounds"])
+		else 
+			xbounds = None
+			ybounds = None
+		end
+
+		mi = MapInput(p,r,dim, Dataset(x,y,z), xbounds, ybounds)
 		push!(out_arr, mi)
 	end
 
@@ -164,14 +178,13 @@ end
 function smoothing_window{T<:Number}(ed::Array{T,1}, sd::Array{T,1}, p::Float64)
 
 	#Returns a dictionary with a list of lower bound indices and a list of upper
-	#bound indices
+	#bound indices and the density of cases in each window
 	sort!(ed)
 	vals = ["lb" => Float64[], "ub" => Float64[], "density" => Float64[]]
 
 	#Calculate the number of cases on either side of the selected case we'll use for
 	#calculating indices
 
-	# print(length(ed))
 	stride_length = convert(Int, ceil((p / 2) * length(ed)))
 	for d=sd
 		i = searchsortedlast(ed, d)
@@ -188,7 +201,7 @@ function smoothing_window{T<:Number}(ed::Array{T,1}, sd::Array{T,1}, p::Float64)
 
 		push!(vals["lb"], ed[lb])
 		push!(vals["ub"], ed[ub])
-		push!(vals["density"], (ub-lb)/length(ed))
+		push!(vals["density"], (ub-lb+1)/length(ed))
 
 	end
 
@@ -229,28 +242,31 @@ function risk_difference(ddist::Array{Float64}, lb::Array{Float64}, ub::Array{Fl
 	rd = zeros(n_sp)
 
 	for i=1:n_cp
-
 		ddi = ddist[:,i]
 		for j=1:n_sp
 			ubv = ub[j,i]
 			lbv = lb[j,i]
-			if ubv > ddi[1]
-				if lbv < ddi[1]
+			#If the upper and lower distance bounds for the
+			#point are inside the range in where there are actually
+			#cases, then we estimate the proportion of cases inside of this window.
+			#Otherwise, it's zero and we just go ahead and subtract the control density. 
+			if (ubv > ddi[1]) & (lbv < ddi[length(ddi)])
+				if lbv <= ddi[1]
 					low_index = 1
 				else
 					low_index = searchsortedlast(ddi, lbv)
 				end
 
 				high_index = searchsortedlast(ddi, ubv)
-				rd[j] = rd[j] + ((high_index - low_index) / n_dp) - density[j,i]
+
+				rd[j] += ((high_index - low_index+1) / length(ddi)) - density[j,i]
 			else
-				rd[j] = rd[j] - density[j,i]
+				rd[j] -= density[j,i]
 			end
-
 		end
-	end
 
-	return rd
+	end
+	return rd ./ n_cp
 end
 
 function hsmap_from_json(fname::String)
@@ -261,7 +277,7 @@ end
 
 function hsmap(mi::MapInput) 
 	print("Making map with p = $(mi.p), r = $(mi.r), dim = $(mi.dim)\n")
-	return hsmap(mi.ds, mi.p, mi.r, mi.dim)
+	return hsmap(mi.ds, mi.p, mi.r, mi.dim, mi.xbounds, mi.ybounds)
 end
 
 function hsmap(dslist::Array{MapInput})
@@ -273,13 +289,17 @@ function hsmap(dslist::Array{MapInput})
 end
 
 
-function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100)
+function hsmap(ds::Dataset, p::Float64 = 0.1, r::Float64 = 1.0, dim::Int = 100, xbounds = None, ybounds = None)
 	#Get a set of circle points
 	cp = circle_points(ds.x, ds.y, r)
 	num_cp = length(cp["x"])
 
 	#Make a grid of points with the specified width
-	rg = risk_grid(ds, dim)
+	if (xbounds != None) & (ybounds != None)
+		rg = risk_grid(xbounds[1],xbounds[2],ybounds[1],ybounds[2],dim)
+	else
+		rg = risk_grid(ds, dim)
+	end
 
 	num_rg = length(rg["x"])
 	rg_x = rg["x"]
